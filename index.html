@@ -89,8 +89,8 @@ class Pos {
 	}
 	
 	fromMouseHr(x, y) {
-		let xd = x + camX - menuSize
-		let yd = y +camY
+		let xd = x - camX - menuSize
+		let yd = y -camY
 		this.x = xd / 100
 		this.y = yd / 100
 	}
