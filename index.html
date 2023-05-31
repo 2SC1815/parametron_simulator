@@ -205,6 +205,8 @@ class Parametron {
 		
 		if (this.state != 0)
 			this.state /= Math.abs(this.state)
+		else
+			this.state = Math.random()>0.5?1:-1
 		
 	}
 	
@@ -573,6 +575,7 @@ function mousedown(e) {
 			if (clicked instanceof ButtonMenu) {
 				clicked.func()
 			} else {
+				lines = []
 				selectMenu = menuTitles[y]
 				connectFrom = null
 			}
