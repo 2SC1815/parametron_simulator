@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+
+<style id="webmakerstyle">
+* {
+    margin: 0;
+    padding: 0;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas" width=400 height=300>
+  your browser is not supported canvas.
+</canvas>
+
+<script>
+const canvasName = "canvas"
+const Framerate = 100/6
+
+let tabSize = 30
+
+let circuits = []
+
+let focused = null
+let connectFrom = null
+
+let dispW = 0
+let dispH = 0
+let menuSize = 100
+
+let camX = 0
+let camY = 0
+
+let mx = 0
+let my = 0
+
+let drug = false
+
+let inMenu = false
+
+let running = false
+
+let r = true
+
+let selectMenu = null
+
+let lines = []
+
+class Menu {
+	constructor(title, func) {
+		this.title = title
+		this.func = func
+	}
+	
+}
+
+class ButtonMenu extends Menu {}
+
+class Pos {
+	
+	constructor(x, y) {
+		this.x = x
+		this.y = y
+	}
+	
+	clone() {
+		return new Pos(this.x, this.y)
+	}
+	
+	cx() {
+		return this.x*100 + camX + menuSize
+	}
+	
+	cy() {
+		return this.y*100 + camY
+	}
+	
+	inside(x, y, r) {
+		return Math.hypot(this.cx()-x, this.cy()-y) < r
+	}
+	
+	fromMouse(x, y) {
+		let xd = x + (100/2) - camX - menuSize
+		let yd = y + (100/2) - camY
+		this.x = Math.floor(xd / 100)
+		this.y = Math.floor(yd / 100)
+	}
+	
+	fromMouseHr(x, y) {
+		let xd = x + camX - menuSize
+		let yd = y +camY
+		this.x = xd / 100
+		this.y = yd / 100
+	}
+	
+}
+
+let cursor = new Pos(0, 0)
+
+class Parametron {
+	
+	constructor(id, phase, pos) {
+		this.pos = pos
+		this.inputs = []
+		this.state = 0
+		this.bias = 0
+		this.id = id
+		this.phase = phase
+		this.active = false
+	}
+	
+	getUid() {
+		return (""+this.phase) + ( '000' + this.id ).slice( -2 )
+	}
+	
+	serialize() {
+		
+		let str = ""
+		
+		for (let ip of this.inputs) {
+			str += (ip["invert"]<0?"!":"") + ip["instance"].getUid() + "~"
+			for(let point of ip["lines"]) {
+				str += point.x + "," + point.y + "|"
+			}
+			str+=":"
+		}
+		
+		str+="+"
+		
+		str += 
+				this.pos.x+":"+
+				this.pos.y+":"+
+				this.state+":"+
+				this.bias+":"+
+				this.id+":"+
+				this.phase
+		
+		
+		return str
+	}
+	
+	invert(input) {
+
+		for (let ip of this.inputs) {
+			if (ip["instance"] == input) {
+				let index = this.inputs.indexOf(ip)
+				this.inputs[index]["invert"] *= -1
+				break
+			}
+		}
+		
+	}
+	
+	connect(input, ls, invert) {
+		if (input instanceof Parametron) {
+			if(this.isConnectable(input))
+				this.inputs.push({"instance":input, "invert":(invert?-1:1), "lines":ls})
+		} else {
+			
+			if(input == "+") {
+				this.bias = 1
+			} else if(p =="-") {
+				this.bias = -1
+			}
+			
+		}
+	}
+	
+	
+	contain(input) {
+		
+		for(let dp of this.inputs) {
+			if (input == dp.instance)
+				return true
+		}
+		
+		return false
+		
+	}
+	
+	isConnectable(input) {
+		
+		
+		let d = (this.phase - 1) - input.phase
+		return (!this.contain(input))  && (this.inputs.length <3) && (d==0 || d==-3)
+	}
+	
+	deleteConnection(p) {
+		for(let dp of this.inputs) {
+			if (dp.instance == p) {
+				this.inputs.splice(this.inputs.indexOf(dp), 1)
+			}
+		}
+	}
+	
+	propagate() {
+		
+		this.state = this.bias
+		
+		for (let input of this.inputs) {
+			this.state += input["instance"].state * input["invert"]
+		}
+		
+		if (this.state != 0)
+			this.state /= Math.abs(this.state)
+		
+	}
+	
+	getColor() {
+		return this.getColorRaw(this.state)
+	}
+	
+	getColorRaw(state) {
+		
+		if (this.state == 0)
+			return "rgb(120, 120, 120)"
+		
+		let v = this.active ? 255 : 128
+		
+		return state>0 ? "rgb(0,"+v+",0)" : "rgb("+v+",0,0)"
+	}
+	
+	drawLine(c) {
+		
+		for (let input of this.inputs) {
+			
+			let p = input["instance"]
+			
+			c.strokeStyle = p.getColor()
+			c.lineWidth = 3 ;
+			drawLines(c, input["lines"], p.pos, this.pos)
+			
+			
+			if (input["invert"] < 0) {
+				
+				let cx = p.pos.cx() + (this.pos.cx() - p.pos.cx() )/2
+				let cy = p.pos.cy() + (this.pos.cy() - p.pos.cy())/2
+							
+				c.strokeStyle = p.getColorRaw(p.state*-1) ;
+				c.beginPath()
+				c.moveTo(cx,cy)
+				c.lineTo(this.pos.cx(), this.pos.cy())
+				c.stroke()
+				
+				c.strokeStyle = "rgb(0, 0, 0)" ;
+				c.beginPath()
+				c.moveTo(cx,cy-10)
+				c.lineTo(cx,cy+10)
+				c.stroke()
+				
+			}
+			
+		}
+		
+	}
+	
+	draw(c, highlight) {
+
+
+		c.beginPath () ;
+		c.arc( this.pos.cx(), this.pos.cy(), 20, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+
+		c.fillStyle = this.getColor() ;
+
+		c.fill() 
+		
+		if (highlight) {
+			c.strokeStyle = "rgb(128, 255, 255)"
+			c.lineWidth = 3 ;
+			c.stroke()
+		}
+		
+		c.fillStyle = "rgb(0,0,0)" ;
+		c.textAlign = "center";
+		c.fillText(this.getUid(), this.pos.cx(), this.pos.cy() + 30);
+		
+		if (this.bias != 0) {
+			
+			c.strokeStyle = "rgb(0, 0, 0)"
+			c.lineWidth = 3 ;
+			
+			c.beginPath()
+			c.moveTo(this.pos.cx()-10, this.pos.cy())
+			c.lineTo(this.pos.cx()+10, this.pos.cy())
+			c.stroke()
+			
+			if (this.bias > 0) {
+				
+			c.beginPath()
+			c.moveTo(this.pos.cx(), this.pos.cy()-10)
+			c.lineTo(this.pos.cx(), this.pos.cy()+10)
+			c.stroke()
+				
+			}
+			
+		}
+		
+	}
+	
+}
+
+class Switch extends Parametron {
+	
+	constructor(id, phase, pos) {
+		super(id, phase, pos)
+		this.state = -1
+		this.alternate = false
+	}
+	
+	serialize() {
+		return "@"+super.serialize()
+	}
+	
+	propagate(){}
+	
+	isConnectable(input) {
+		return false
+	}
+	
+	draw(c, highlight) {
+		super.draw(c, highlight)
+		
+		c.beginPath () ;
+		c.arc( this.pos.cx(), this.pos.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+
+		c.fillStyle = "rgb(0, 0, 0)" ;
+
+		c.fill() 
+	}
+	
+}
+
+function isEmpty(pos) {
+
+	for(let p of circuits) {
+		if (p.pos.x == cursor.x && p.pos.y == cursor.y) 
+			return false
+	}
+	return true
+}
+
+function move(e) {
+	if (drug) {
+		camX += e.movementX
+		camY += e.movementY
+	}
+	
+	my = e.clientY
+	mx = e.clientX
+	
+	cursor.fromMouse(mx, my)
+
+	focused = null
+	for (let p of circuits) {
+		if (p.pos.inside(mx, my, 20)) {
+			focused = p
+			break
+		}
+	}
+	
+	
+}
+
+function deserialize(s) {
+	
+		circuits = []
+		
+		let ps = s.split("*")
+		
+		for (let p of ps) {
+			
+			if (p.length <=0)
+				continue
+			
+			let instance = p.startsWith("@") ? new Switch(0, 0, null) : new Parametron(0, 0, null)
+			
+			p = p.replaceAll("@", "")
+			
+			let elems = p.split("+")
+			let inputs = elems[0].split(":")
+			let att = elems[1].split(":")
+			
+			for(let input of inputs) {
+				if (input.length>0) {
+					instance.inputs.push(input)
+				}
+			}
+			
+			instance.pos = new Pos(Number(att[0]),Number(att[1]))
+			instance.state = Number(att[2])
+			instance.bias = Number(att[3])
+			instance.id = Number(att[4])
+			instance.phase = Number(att[5])
+			
+			circuits.push(instance)
+			
+			
+		}
+
+	let num = 0
+		for (let p of circuits) {
+			
+			let inputs = p.inputs
+			p.inputs = []
+			for (let inr of inputs) {
+				
+				let ar = inr.split("~")
+				let input = ar[0]
+				let lsp = ar[1].split("|")
+				
+				
+				let ls = []
+				
+				if (ar[1].length > 0) {
+				
+					for (let pos of lsp) {
+						if (pos.length > 0) {
+							let pspl = pos.split(",")
+							ls.push(new Pos(parseFloat(pspl[0]), parseFloat(pspl[1])))
+						}
+					}
+					
+				}
+				
+				let inv = input.startsWith("!")
+				input = input.replaceAll("!", "")
+				
+				for (let s of circuits) {
+					if (s.getUid() == input) {
+						p.connect(s, ls, inv)
+						break
+					}
+				}
+				
+			}
+		}
+	
+	
+}
+
+const menuTitles = [
+	new Menu("Hand", ()=>{
+		
+		if (focused instanceof Switch) {
+			focused.state *= -1
+		} else {
+			drug = true
+		}
+		
+	}),
+	
+	new Menu("Add Parametron", ()=> {
+
+		if (isEmpty(cursor)) {
+			phase = (cursor.x%3)+1
+			circuits.push(new Parametron(makeId(phase), phase, cursor.clone()))
+		}
+		
+	}),
+	
+	new Menu("Add Switch",()=> {
+
+		if (isEmpty(cursor)) {
+			phase = (cursor.x%3)+1
+			circuits.push(new Switch(makeId(phase), phase, cursor.clone()))
+		}
+		
+	}),
+	
+	new Menu("Make Connection",()=> {
+		
+				if (focused != null) {
+					
+					if(connectFrom == null) {
+						connectFrom = focused
+					} else if(focused.isConnectable(connectFrom)) {
+
+						focused.connect(connectFrom, lines, false)
+						lines = []
+						connectFrom = null
+					}
+
+				} else if (connectFrom != null) {
+					let point = new Pos(0, 0)
+					point.fromMouseHr(mx, my)
+					lines.push(point)
+				}
+
+	}),
+	
+	new Menu("Invert Connection",()=> {
+
+		if (focused != null) {
+			if(connectFrom == null) {
+				connectFrom = focused
+			} else if(focused.contain(connectFrom)) {
+				focused.invert(connectFrom)
+				connectFrom = null
+			}
+		}
+		
+	}),
+	
+	new Menu("Bias",()=> {
+		
+		if (!(focused instanceof Switch)) {
+			
+			if (focused.bias == 0)
+				focused.bias = 1
+			else if (focused.bias == 1)
+				focused.bias = -1
+			else
+				focused.bias = 0
+				
+		}
+		
+	}),
+	
+	new Menu("Delete",()=> {
+
+		if (focused != null) {
+			for (let p of circuits)
+				p.deleteConnection(focused)
+			circuits.splice(circuits.indexOf(focused), 1)
+		}
+
+	}),
+	
+	new Menu("Del. Connection",()=> {
+
+		if (focused != null) {
+			if(connectFrom == null) {
+				connectFrom = focused
+			} else {
+				focused.deleteConnection(connectFrom)
+				connectFrom = null
+			}
+		}
+
+	}),
+	
+	new ButtonMenu("Start / Stop",()=> {
+
+		running = !running
+
+	}),
+	
+	new ButtonMenu("Load from Clip",()=> {
+		
+		readCbDeserialize()
+
+	}),
+	
+	new ButtonMenu("Save to Clip",()=> {
+		
+		let str = ""
+		
+		for (let p of circuits) {
+			str += p.serialize() + "*"
+		}
+		
+		console.info(str)
+		
+		navigator.clipboard.writeText(str)
+		
+		
+	})
+	
+]
+
+async function readCbDeserialize() {
+	
+		const text = await navigator.clipboard.readText();
+		deserialize(text)
+	
+}
+
+function mousedown(e) {
+	if (e.clientX > menuSize) {
+		
+		if (selectMenu != null)
+			selectMenu.func()
+		
+	} else {
+		
+		let y = Math.floor(my/tabSize)
+		if (y < menuTitles.length) {
+			
+			let clicked = menuTitles[y]
+			if (clicked instanceof ButtonMenu) {
+				clicked.func()
+			} else {
+				selectMenu = menuTitles[y]
+				connectFrom = null
+			}
+			
+		}
+		
+	}
+}
+
+function mouseup(e) {
+	if (focused instanceof Switch) {
+		focused.status *= -1
+	} else {
+		drug = false
+	}
+}
+
+function makeId(phase) {
+	let i = 1
+	while(1) {
+		let flag = true
+		for (let p of circuits) {
+			if (p.phase != phase)
+				continue
+			if (i == p.id) {
+				i++
+				flag = false
+				break;
+			}
+		}
+		if (flag)
+			return i
+	}
+}
+
+function main() {
+
+	
+	
+	const cv = document.getElementById(canvasName);
+
+	cv.addEventListener('mousemove', move);
+	cv.addEventListener('mousedown', mousedown);
+	cv.addEventListener('mouseup', mouseup);
+
+	if (!cv.getContext) return;
+
+
+	const ct = cv.getContext("2d");
+
+		dispW = document.documentElement.clientWidth
+		dispH = document.documentElement.clientHeight
+		cv.width = dispW
+		cv.height = dispH
+		
+		tabSize = dispH / menuTitles.length
+	
+	setInterval(() => {
+
+		ct.clearRect(0, 0, cv.width, cv.height)
+		ct.fillStyle = 'rgb(200, 200, 200)';
+		ct.fillRect(0,0, cv.width, cv.height);
+		
+		draw(ct)
+		
+		ct.fillStyle = 'rgb(250, 250, 250)';
+		ct.fillRect(0,0, menuSize, cv.height);
+		
+		drawMenu(ct)
+		
+	}, Framerate);
+	
+	let phase = 1
+	
+	setInterval(() => {
+		
+		if (running) {
+			for (let p of circuits) {
+				p.active = false
+				if (p.phase == phase) {
+					p.propagate()
+					p.active = true
+				}
+			}
+
+			phase ++
+			if (phase > 3)
+				phase = 1
+		}
+		
+	}, 200);
+
+//deserialize("+1:1:0:0:1:2*201~1.37,1.45|1.4,0.54|:+2:1:0:0:1:3*301~2.52,1.23|:+3:1:0:0:1:1*101~:+4:1:0:0:2:2*")
+	
+}
+
+function drawLines(c, array, start, end) {
+	c.beginPath()
+	c.moveTo(start.cx(), start.cy())
+	for (let point of array) {
+		c.lineTo(point.cx(), point.cy())
+	}
+	c.lineTo(end.cx(), end.cy())
+	c.stroke()
+	
+}
+
+function drawMenu(c) {
+
+	let y = Math.floor(my/tabSize)
+		
+	if (mx < menuSize && y < menuTitles.length) {
+		// draw menu
+		c.fillStyle = 'rgb(0, 250, 250)';
+		c.fillRect(0,y*tabSize, menuSize,tabSize);
+		
+	}
+	
+	c.fillStyle = 'rgb(0, 250, 128)';
+	c.fillRect(0,menuTitles.indexOf(selectMenu)*tabSize, menuSize,tabSize);
+	
+	
+	for (let menu of menuTitles) {
+		
+		c.fillStyle = 'rgb(20, 50, 50)';
+		c.textAlign = "center";
+		c.fillText(menu.title, 50, (menuTitles.indexOf(menu)*tabSize) + (tabSize/2)+5);
+		
+	}
+	
+	
+	
+}
+
+function draw(c) {
+	
+	if (mx > menuSize) {
+
+		c.beginPath () ;
+		c.arc( cursor.cx(), cursor.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+
+		c.strokeStyle = "rgb(0, 0, 0)" ;
+
+		c.stroke() 
+		
+	} 
+	
+	
+	for (let p of circuits) {
+		p.drawLine(c)
+	}
+
+	if (connectFrom != null && selectMenu.title == "Make Connection") {
+
+		let mousep = new Pos(0, 0)
+		mousep.fromMouseHr(mx, my)
+		c.strokeStyle = "rgb(20, 200, 200)" ;
+		drawLines(c, lines, connectFrom.pos, mousep)
+
+	}
+
+	for (let p of circuits) {
+		let f1 = connectFrom == null || (focused != null && focused.isConnectable(connectFrom))
+		p.draw(c, (p == focused &&f1) || p == connectFrom)
+	}
+	
+	
+}
+
+main();
+//# sourceURL=userscript.js
+</script>
+</body>
+</html>
