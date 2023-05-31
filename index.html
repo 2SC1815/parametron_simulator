@@ -230,27 +230,8 @@ class Parametron {
 			
 			c.strokeStyle = p.getColor()
 			c.lineWidth = 3 ;
-			drawLines(c, input["lines"], p.pos, this.pos)
-			
-			
-			if (input["invert"] < 0) {
-				
-				let cx = p.pos.cx() + (this.pos.cx() - p.pos.cx() )/2
-				let cy = p.pos.cy() + (this.pos.cy() - p.pos.cy())/2
-							
-				c.strokeStyle = p.getColorRaw(p.state*-1) ;
-				c.beginPath()
-				c.moveTo(cx,cy)
-				c.lineTo(this.pos.cx(), this.pos.cy())
-				c.stroke()
-				
-				c.strokeStyle = "rgb(0, 0, 0)" ;
-				c.beginPath()
-				c.moveTo(cx,cy-10)
-				c.lineTo(cx,cy+10)
-				c.stroke()
-				
-			}
+			drawLines(c, input["lines"], p.pos, this.pos, 
+								input["invert"] < 0 ? p : null)
 			
 		}
 		
@@ -688,14 +669,39 @@ function main() {
 	
 }
 
-function drawLines(c, array, start, end) {
+function drawLines(a, b, c, d) {
+	drawLines(a, b, c, d, null)
+}
+
+function drawLines(c, array, start, end, input_invert) {
 	c.beginPath()
 	c.moveTo(start.cx(), start.cy())
+	let last = start
 	for (let point of array) {
 		c.lineTo(point.cx(), point.cy())
+		last = point
 	}
 	c.lineTo(end.cx(), end.cy())
 	c.stroke()
+
+	if (input_invert != null) {
+
+		let cx = last.cx() + (end.cx() - last.cx() )/2
+		let cy = last.cy() + (end.cy() - last.cy())/2
+
+		c.strokeStyle = input_invert.getColorRaw(input_invert.state*-1) ;
+		c.beginPath()
+		c.moveTo(cx,cy)
+		c.lineTo(end.cx(), end.cy())
+		c.stroke()
+
+		c.strokeStyle = "rgb(0, 0, 0)" ;
+		c.beginPath()
+		c.moveTo(cx,cy-10)
+		c.lineTo(cx,cy+10)
+		c.stroke()
+
+	}
 	
 }
 
