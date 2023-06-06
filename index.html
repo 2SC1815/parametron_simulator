@@ -16,47 +16,56 @@
 </canvas>
 
 <script>
+/*
+
+Parametron Circuit Simulator
+written by Wakayama Takumi (2SC1815)
+
+Used Webmaker (https://webmaker.app/)
+
+*/
+
+
+// constants
 const canvasName = "canvas"
 const Framerate = 100/6
+const menuSize = 100
+const maxUndo = 30
 
-let tabSize = 30
+// variables
 
-let circuits = []
-
+// pointer
+let cursor = null
 let focused = null
 let connectFrom = null
-
-let dispW = 0
-let dispH = 0
-let menuSize = 100
-
-let camX = 0
-let camY = 0
-
-let mx = 0
-let my = 0
-
-let drug = false
-
-let inMenu = false
-
-let running = false
-
-let r = true
-
 let selectMenu = null
 
+// sizes
+let dispW = 0
+let dispH = 0
+let camX = 0
+let camY = 0
+let mx = 0
+let my = 0
+let tabSize = 0 // menu tab height
+
+//phase
+let phase = 1
+
+// flags
+let drug = false
+let inMenu = false
+let running = false
+
+// arrays
+let circuits = []
 let lines = []
+let undoHist = []
+let redoHist = []
 
-class Menu {
-	constructor(title, func) {
-		this.title = title
-		this.func = func
-	}
-	
-}
 
-class ButtonMenu extends Menu {}
+
+// class define
 
 class Pos {
 	
@@ -96,8 +105,6 @@ class Pos {
 	}
 	
 }
-
-let cursor = new Pos(0, 0)
 
 class Parametron {
 	
@@ -315,115 +322,19 @@ class Switch extends Parametron {
 	
 }
 
-function isEmpty(pos) {
-
-	for(let p of circuits) {
-		if (p.pos.x == cursor.x && p.pos.y == cursor.y) 
-			return false
+class Menu {
+	constructor(title, func) {
+		this.title = title
+		this.func = func
 	}
-	return true
-}
-
-function move(e) {
-	if (drug) {
-		camX += e.movementX
-		camY += e.movementY
-	}
-	
-	my = e.clientY
-	mx = e.clientX
-	
-	cursor.fromMouse(mx, my)
-
-	focused = null
-	for (let p of circuits) {
-		if (p.pos.inside(mx, my, 20)) {
-			focused = p
-			break
-		}
-	}
-	
 	
 }
 
-function deserialize(s) {
-	
-		circuits = []
-		
-		let ps = s.split("*")
-		
-		for (let p of ps) {
-			
-			if (p.length <=0)
-				continue
-			
-			let instance = p.startsWith("@") ? new Switch(0, 0, null) : new Parametron(0, 0, null)
-			
-			p = p.replaceAll("@", "")
-			
-			let elems = p.split("+")
-			let inputs = elems[0].split(":")
-			let att = elems[1].split(":")
-			
-			for(let input of inputs) {
-				if (input.length>0) {
-					instance.inputs.push(input)
-				}
-			}
-			
-			instance.pos = new Pos(Number(att[0]),Number(att[1]))
-			instance.state = Number(att[2])
-			instance.bias = Number(att[3])
-			instance.id = Number(att[4])
-			instance.phase = Number(att[5])
-			
-			circuits.push(instance)
-			
-			
-		}
+class ButtonMenu extends Menu {}
 
-	let num = 0
-		for (let p of circuits) {
-			
-			let inputs = p.inputs
-			p.inputs = []
-			for (let inr of inputs) {
-				
-				let ar = inr.split("~")
-				let input = ar[0]
-				let lsp = ar[1].split("|")
-				
-				
-				let ls = []
-				
-				if (ar[1].length > 0) {
-				
-					for (let pos of lsp) {
-						if (pos.length > 0) {
-							let pspl = pos.split(",")
-							ls.push(new Pos(parseFloat(pspl[0]), parseFloat(pspl[1])))
-						}
-					}
-					
-				}
-				
-				let inv = input.startsWith("!")
-				input = input.replaceAll("!", "")
-				
-				for (let s of circuits) {
-					if (s.getUid() == input) {
-						p.connect(s, ls, inv)
-						break
-					}
-				}
-				
-			}
-		}
-	
-	
-}
-
+// menu function define
 const menuTitles = [
+	
 	new Menu("Hand", ()=>{
 		
 		if (focused instanceof Switch) {
@@ -438,7 +349,7 @@ const menuTitles = [
 
 		if (isEmpty(cursor)) {
 			phase = (cursor.x%3)+1
-			circuits.push(new Parametron(makeId(phase), phase, cursor.clone()))
+			circuits.push(new Parametron(makeId(phase), phase, cursor.clone()))	
 		}
 		
 	}),
@@ -459,7 +370,6 @@ const menuTitles = [
 					if(connectFrom == null) {
 						connectFrom = focused
 					} else if(focused.isConnectable(connectFrom)) {
-
 						focused.connect(connectFrom, lines, false)
 						lines = []
 						connectFrom = null
@@ -499,7 +409,7 @@ const menuTitles = [
 				
 		}
 		
-	}),
+	}, true),
 	
 	new Menu("Delete",()=> {
 
@@ -509,7 +419,7 @@ const menuTitles = [
 			circuits.splice(circuits.indexOf(focused), 1)
 		}
 
-	}),
+	},),
 	
 	new Menu("Del. Connection",()=> {
 
@@ -530,69 +440,205 @@ const menuTitles = [
 
 	}),
 	
-	new ButtonMenu("Load from Clip",()=> {
-		
-		readCbDeserialize()
-
-	}),
+	new ButtonMenu("Load from Clip",readCbDeserialize),
 	
-	new ButtonMenu("Save to Clip",()=> {
-		
-		let str = ""
-		
-		for (let p of circuits) {
-			str += p.serialize() + "*"
-		}
-		
-		console.info(str)
-		
-		navigator.clipboard.writeText(str)
-		
-		
-	})
+	new ButtonMenu("Save to Clip",saveCb)
 	
 ]
 
+
+
+// function define
+
+// プログラムが開始されると呼ばれるやつ
+function main() {
+
+	cursor = new Pos(0, 0)
+	
+	const cv = document.getElementById(canvasName)
+
+	if (!cv.getContext) return;
+	
+	
+	setSizes(cv)
+
+	window.addEventListener('resize', setSizes)
+	document.addEventListener('keydown', keyDown, false);
+	cv.addEventListener('mousemove', mouseMove)
+	cv.addEventListener('mousedown', mouseDown)
+	cv.addEventListener('mouseup', mouseUp)
+
+	const ct = cv.getContext("2d");
+
+	readCookieDeserialize()
+
+	setInterval(() => { draw(ct) }, Framerate)
+	
+	setInterval(step, 200)
+
+	
+}
+
+//与えられた座標に回路素子がない場合, trueを返す
+function isEmpty(pos) {
+
+	for(let p of circuits) {
+		if (p.pos.x == cursor.x && p.pos.y == cursor.y) 
+			return false
+	}
+	return true
+}
+
+//与えられた回路を文字列にエンコードして返す
+function serialize(circuit) {
+	let str = ""
+		
+		for (let p of circuit) {
+			str += p.serialize() + "*"
+		}
+	
+	return str
+}
+
+//与えられた文字列から回路をデコードして返す
+function deserialize(s) {
+	
+		let cs = []
+		
+		let ps = s.split("*")
+		
+		for (let p of ps) {
+			
+			if (p.length <=0)
+				continue
+			
+			let instance = p.startsWith("@") ? new Switch(0, 0, null) : new Parametron(0, 0, null)
+			
+			p = p.replaceAll("@", "")
+			
+			let elems = p.split("+")
+			let inputs = elems[0].split(":")
+			let att = elems[1].split(":")
+			
+			for(let input of inputs) {
+				if (input.length>0) {
+					instance.inputs.push(input)
+				}
+			}
+			
+			instance.pos = new Pos(Number(att[0]),Number(att[1]))
+			instance.state = Number(att[2])
+			instance.bias = Number(att[3])
+			instance.id = Number(att[4])
+			instance.phase = Number(att[5])
+			
+			cs.push(instance)
+			
+			
+		}
+
+	let num = 0
+		for (let p of cs) {
+			
+			let inputs = p.inputs
+			p.inputs = []
+			for (let inr of inputs) {
+				
+				let ar = inr.split("~")
+				let input = ar[0]
+				let lsp = ar[1].split("|")
+				
+				
+				let ls = []
+				
+				if (ar[1].length > 0) {
+				
+					for (let pos of lsp) {
+						if (pos.length > 0) {
+							let pspl = pos.split(",")
+							ls.push(new Pos(parseFloat(pspl[0]), parseFloat(pspl[1])))
+						}
+					}
+					
+				}
+				
+				let inv = input.startsWith("!")
+				input = input.replaceAll("!", "")
+				
+				for (let s of cs) {
+					if (s.getUid() == input) {
+						p.connect(s, ls, inv)
+						break
+					}
+				}
+				
+			}
+		}
+	
+	return cs
+	
+}
+
+//やり直し用の履歴を更新する
+function updateHistory() {
+	redoHist=[]
+	let str = serialize(circuits)
+	if (undoHist[undoHist.length-1] != str) {
+		undoHist.push(str)
+		if (undoHist.length > maxUndo)
+			undoHist.shift()
+	}
+}
+
+//やり直し
+function undo() {
+	if (undoHist.length > 0) {
+		redoHist.push(serialize(circuits))
+		circuits = deserialize(undoHist.pop())
+	}
+}
+
+//やり直しをやりなおす
+function redo() {
+	if (redoHist.length > 0) {
+		undoHist.push(serialize(circuits))
+		circuits = deserialize(redoHist.pop())
+	}
+}
+
+//現在の回路をクリップボードに保存
+function saveCb() {
+		let str = serialize(circuits)
+		console.info(str)
+		navigator.clipboard.writeText(str)
+}
+
+//現在の回路をクッキーに保存
+function saveToCookie() {
+	
+		document.cookie = "circuit="+serialize(circuits);
+}
+
+//クッキーに保存された回路を読み込む
+function readCookieDeserialize() {
+	
+	document.cookie.split(';').forEach((v)=>{
+		let val = v.split('=');
+		if (val[0]=="circuit")
+			circuits = deserialize(val[1]);
+	})
+	
+}
+
+//クリップボードに保存された文字列から回路をデコードして現在の回路を上書きする
 async function readCbDeserialize() {
 	
 		const text = await navigator.clipboard.readText();
-		deserialize(text)
+		circuits = deserialize(text)
 	
 }
 
-function mousedown(e) {
-	if (e.clientX > menuSize) {
-		
-		if (selectMenu != null)
-			selectMenu.func()
-		
-	} else {
-		
-		let y = Math.floor(my/tabSize)
-		if (y < menuTitles.length) {
-			
-			let clicked = menuTitles[y]
-			if (clicked instanceof ButtonMenu) {
-				clicked.func()
-			} else {
-				lines = []
-				selectMenu = menuTitles[y]
-				connectFrom = null
-			}
-			
-		}
-		
-	}
-}
-
-function mouseup(e) {
-	if (focused instanceof Switch) {
-		focused.status *= -1
-	} else {
-		drug = false
-	}
-}
-
+//現在の回路に存在する回路素子のIDに被らない最も小さい整数を返す
 function makeId(phase) {
 	let i = 1
 	while(1) {
@@ -611,48 +657,24 @@ function makeId(phase) {
 	}
 }
 
-function main() {
-
-	
+//キャンバスの大きさなどを現在の画面サイズに合わせる
+function setSizes(canvas) {
 	
 	const cv = document.getElementById(canvasName);
-
-	cv.addEventListener('mousemove', move);
-	cv.addEventListener('mousedown', mousedown);
-	cv.addEventListener('mouseup', mouseup);
-
-	if (!cv.getContext) return;
-
-
-	const ct = cv.getContext("2d");
-
-		dispW = document.documentElement.clientWidth
-		dispH = document.documentElement.clientHeight
-		cv.width = dispW
-		cv.height = dispH
-		
-		tabSize = dispH / menuTitles.length
 	
-	setInterval(() => {
+	dispW = document.documentElement.clientWidth
+	dispH = document.documentElement.clientHeight
+	cv.width = dispW
+	cv.height = dispH
 
-		ct.clearRect(0, 0, cv.width, cv.height)
-		ct.fillStyle = 'rgb(200, 200, 200)';
-		ct.fillRect(0,0, cv.width, cv.height);
-		
-		draw(ct)
-		
-		ct.fillStyle = 'rgb(250, 250, 250)';
-		ct.fillRect(0,0, menuSize, cv.height);
-		
-		drawMenu(ct)
-		
-	}, Framerate);
+	tabSize = dispH / menuTitles.length
 	
-	let phase = 1
+}
+
+//回路のシミュレーションを1ステップ進める
+function step() {
 	
-	setInterval(() => {
-		
-		if (running) {
+	if (running) {
 			for (let p of circuits) {
 				p.active = false
 				if (p.phase == phase) {
@@ -665,17 +687,13 @@ function main() {
 			if (phase > 3)
 				phase = 1
 		}
-		
-	}, 200);
-
-//deserialize("+1:1:0:0:1:2*201~1.37,1.45|1.4,0.54|:+2:1:0:0:1:3*301~2.52,1.23|:+3:1:0:0:1:1*101~:+4:1:0:0:2:2*")
 	
 }
 
-function drawLines(a, b, c, d) {
-	drawLines(a, b, c, d, null)
-}
-
+/*
+与えられた座標配列で表される点を通る線を描画する。
+input_invertに送信元パラメトロンのインスタンスを与えると、否定配線を描画する
+*/
 function drawLines(c, array, start, end, input_invert) {
 	c.beginPath()
 	c.moveTo(start.cx(), start.cy())
@@ -687,7 +705,7 @@ function drawLines(c, array, start, end, input_invert) {
 	c.lineTo(end.cx(), end.cy())
 	c.stroke()
 
-	if (input_invert != null) {
+	if (input_invert != null && input_invert instanceof Parametron) {
 
 		let cx = last.cx() + (end.cx() - last.cx() )/2
 		let cy = last.cy() + (end.cy() - last.cy())/2
@@ -708,6 +726,7 @@ function drawLines(c, array, start, end, input_invert) {
 	
 }
 
+//メニュー描画
 function drawMenu(c) {
 
 	let y = Math.floor(my/tabSize)
@@ -735,19 +754,8 @@ function drawMenu(c) {
 	
 }
 
-function draw(c) {
-	
-	if (mx > menuSize) {
-
-		c.beginPath () ;
-		c.arc( cursor.cx(), cursor.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
-
-		c.strokeStyle = "rgb(0, 0, 0)" ;
-
-		c.stroke() 
-		
-	} 
-	
+//回路描画
+function drawCircuits(c) {
 	
 	for (let p of circuits) {
 		p.drawLine(c)
@@ -766,11 +774,117 @@ function draw(c) {
 		let f1 = connectFrom == null || (focused != null && focused.isConnectable(connectFrom))
 		p.draw(c, (p == focused &&f1) || p == connectFrom)
 	}
+
+}
+
+//画面描画
+function draw(c) {
+	
+	c.clearRect(0, 0, dispW,dispH)
+	c.fillStyle = 'rgb(200, 200, 200)';
+	c.fillRect(0,0, dispW,dispH);
+
+	if (mx > menuSize) {
+
+		c.beginPath () ;
+		c.arc( cursor.cx(), cursor.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+
+		c.strokeStyle = "rgb(0, 0, 0)" ;
+
+		c.stroke() 
+
+	} 
+
+	drawCircuits(c)
+
+	c.fillStyle = 'rgb(250, 250, 250)';
+	c.fillRect(0,0, menuSize, dispH);
+	
+	drawMenu(c)
+	
+}
+
+
+// event listeners
+
+function mouseDown(e) {
+	if (e.clientX > menuSize) {
+
+		if (selectMenu != null) {
+			updateHistory()
+			selectMenu.func()
+			saveToCookie()
+		}
+		
+	} else {
+		
+		let y = Math.floor(my/tabSize)
+		if (y < menuTitles.length) {
+			
+			let clicked = menuTitles[y]
+			if (clicked instanceof ButtonMenu) {
+				clicked.func()
+			} else {
+				lines = []
+				selectMenu = menuTitles[y]
+				connectFrom = null
+			}
+			
+		}
+		
+	}
+}
+
+function mouseUp(e) {
+	if (focused instanceof Switch) {
+		focused.status *= -1
+	} else {
+		drug = false
+	}
+}
+
+function mouseMove(e) {
+	if (drug) {
+		camX += e.movementX
+		camY += e.movementY
+	}
+	
+	my = e.clientY
+	mx = e.clientX
+	
+	cursor.fromMouse(mx, my)
+
+	focused = null
+	for (let p of circuits) {
+		if (p.pos.inside(mx, my, 20)) {
+			focused = p
+			break
+		}
+	}
 	
 	
 }
 
-main();
+function keyDown(e) {
+
+	let key = e.code
+
+	if (e.ctrlKey || e.metaKey) {
+
+		if (key === "KeyZ"){
+			undo()
+		} else if (key === "KeyY") {
+			redo()
+		}
+
+	}
+
+}
+
+
+// start program
+
+main()
 //# sourceURL=userscript.js
 </script>
 </body>
