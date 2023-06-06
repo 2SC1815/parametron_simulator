@@ -47,6 +47,7 @@ let camX = 0
 let camY = 0
 let mx = 0
 let my = 0
+let zoom = 1
 let tabSize = 0 // menu tab height
 
 //phase
@@ -79,15 +80,15 @@ class Pos {
 	}
 	
 	cx() {
-		return this.x*100 + camX + menuSize
+		return (this.x*100 + camX + menuSize) * zoom
 	}
 	
 	cy() {
-		return this.y*100 + camY
+		return (this.y*100 + camY) * zoom
 	}
 	
 	inside(x, y, r) {
-		return Math.hypot(this.cx()-x, this.cy()-y) < r
+		return Math.hypot((this.cx()/zoom)-x, (this.cy()/zoom)-y) < r * zoom
 	}
 	
 	fromMouse(x, y) {
@@ -238,7 +239,7 @@ class Parametron {
 			let p = input["instance"]
 			
 			c.strokeStyle = p.getColor()
-			c.lineWidth = 3 ;
+			c.lineWidth = 3 * zoom ;
 			drawLines(c, input["lines"], p.pos, this.pos, 
 								input["invert"] < 0 ? p : null)
 			
@@ -250,7 +251,7 @@ class Parametron {
 
 
 		c.beginPath () ;
-		c.arc( this.pos.cx(), this.pos.cy(), 20, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+		c.arc( this.pos.cx(), this.pos.cy(), 20*zoom, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
 
 		c.fillStyle = this.getColor() ;
 
@@ -258,13 +259,14 @@ class Parametron {
 		
 		if (highlight) {
 			c.strokeStyle = "rgb(128, 255, 255)"
-			c.lineWidth = 3 ;
+			c.lineWidth = 3 * zoom;
 			c.stroke()
 		}
 		
 		c.fillStyle = "rgb(0,0,0)" ;
 		c.textAlign = "center";
-		c.fillText(this.getUid(), this.pos.cx(), this.pos.cy() + 30);
+		c.font = (15*zoom)+"px serif"
+		c.fillText(this.getUid(), this.pos.cx(), this.pos.cy() + 35*zoom);
 		
 		if (this.bias != 0) {
 			
@@ -313,7 +315,7 @@ class Switch extends Parametron {
 		super.draw(c, highlight)
 		
 		c.beginPath () ;
-		c.arc( this.pos.cx(), this.pos.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+		c.arc( this.pos.cx(), this.pos.cy(), 5*zoom, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
 
 		c.fillStyle = "rgb(0, 0, 0)" ;
 
@@ -455,6 +457,8 @@ function main() {
 
 	cursor = new Pos(0, 0)
 	
+	selectMenu = menuTitles[0]
+	
 	const cv = document.getElementById(canvasName)
 
 	if (!cv.getContext) return;
@@ -467,6 +471,7 @@ function main() {
 	cv.addEventListener('mousemove', mouseMove)
 	cv.addEventListener('mousedown', mouseDown)
 	cv.addEventListener('mouseup', mouseUp)
+	cv.addEventListener('wheel', mouseWheel)
 
 	const ct = cv.getContext("2d");
 
@@ -661,13 +666,13 @@ function makeId(phase) {
 function setSizes(canvas) {
 	
 	const cv = document.getElementById(canvasName);
-	
-	dispW = document.documentElement.clientWidth
-	dispH = document.documentElement.clientHeight
-	cv.width = dispW
-	cv.height = dispH
 
-	tabSize = dispH / menuTitles.length
+	cv.width = document.documentElement.clientWidth
+	cv.height = document.documentElement.clientHeight
+	dispW = cv.width
+	dispH = cv.height
+	
+	tabSize = cv.height / menuTitles.length
 	
 }
 
@@ -729,9 +734,9 @@ function drawLines(c, array, start, end, input_invert) {
 //メニュー描画
 function drawMenu(c) {
 
-	let y = Math.floor(my/tabSize)
+	let y = Math.floor((my*zoom)/tabSize)
 		
-	if (mx < menuSize && y < menuTitles.length) {
+	if ((mx*zoom) < menuSize && y < menuTitles.length) {
 		// draw menu
 		c.fillStyle = 'rgb(0, 250, 250)';
 		c.fillRect(0,y*tabSize, menuSize,tabSize);
@@ -746,6 +751,7 @@ function drawMenu(c) {
 		
 		c.fillStyle = 'rgb(20, 50, 50)';
 		c.textAlign = "center";
+		c.font = "10px serif"
 		c.fillText(menu.title, 50, (menuTitles.indexOf(menu)*tabSize) + (tabSize/2)+5);
 		
 	}
@@ -787,7 +793,7 @@ function draw(c) {
 	if (mx > menuSize) {
 
 		c.beginPath () ;
-		c.arc( cursor.cx(), cursor.cy(), 5, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
+		c.arc( cursor.cx(), cursor.cy(), 5 * zoom, 0 * Math.PI / 180, 360 * Math.PI / 180, false ) ;
 
 		c.strokeStyle = "rgb(0, 0, 0)" ;
 
@@ -818,7 +824,7 @@ function mouseDown(e) {
 		
 	} else {
 		
-		let y = Math.floor(my/tabSize)
+		let y = Math.floor((my*zoom)/tabSize)
 		if (y < menuTitles.length) {
 			
 			let clicked = menuTitles[y]
@@ -845,12 +851,12 @@ function mouseUp(e) {
 
 function mouseMove(e) {
 	if (drug) {
-		camX += e.movementX
-		camY += e.movementY
+		camX += e.movementX / zoom
+		camY += e.movementY / zoom
 	}
 	
-	my = e.clientY
-	mx = e.clientX
+	my = e.clientY / zoom
+	mx = e.clientX / zoom
 	
 	cursor.fromMouse(mx, my)
 
@@ -862,6 +868,24 @@ function mouseMove(e) {
 		}
 	}
 	
+	
+}
+
+function mouseWheel(e) {
+
+	const cv = document.getElementById(canvasName);
+	
+	let d = 1 / zoom
+	
+	zoom += event.deltaY * -0.01
+	zoom = Math.min(Math.max(.2, zoom), 1);
+
+	d -= 1 / zoom
+	d *= 0.5
+	
+	camX -= d*cv.width
+	camY -= d*cv.height
+
 	
 }
 
