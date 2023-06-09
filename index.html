@@ -479,7 +479,7 @@ function main() {
 
 	setInterval(() => { draw(ct) }, Framerate)
 	
-	setInterval(step, 200)
+	setInterval(()=>{ if (running) step()}, 100)
 
 	
 }
@@ -679,19 +679,17 @@ function setSizes(canvas) {
 //回路のシミュレーションを1ステップ進める
 function step() {
 	
-	if (running) {
-			for (let p of circuits) {
-				p.active = false
-				if (p.phase == phase) {
-					p.propagate()
-					p.active = true
-				}
-			}
-
-			phase ++
-			if (phase > 3)
-				phase = 1
+	for (let p of circuits) {
+		p.active = false
+		if (p.phase == phase) {
+			p.propagate()
+			p.active = true
 		}
+	}
+
+	phase ++
+	if (phase > 3)
+		phase = 1
 	
 }
 
@@ -901,7 +899,10 @@ function keyDown(e) {
 			redo()
 		}
 
-	}
+	}else if (key === "KeyS") {
+			console.info("step")
+			step()
+		}
 
 }
 
